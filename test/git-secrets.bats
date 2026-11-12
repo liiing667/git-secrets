@@ -109,6 +109,49 @@ load test_helper
   [ "${lines[1]}" == "$file:2:this is forbidden right?" ]
 }
 
+@test "Scans a file whose name starts with -e when passed after --" {
+  file="$TEST_REPO/-eevil.txt"
+  echo '@todo stuff' > "$file"
+  # The "--" keeps the leading "-e" from being treated as a grep option.
+  repo_run git-secrets --scan -- "$file"
+  [ $status -eq 1 ]
+  [ "${lines[0]}" == "${file}:1:@todo stuff" ]
+}
+
+@test "Scans a file whose name starts with --exclude when passed after --" {
+  file="$TEST_REPO/--exclude=.*"
+  echo '@todo stuff' > "$file"
+  repo_run git-secrets --scan -- "$file"
+  [ $status -eq 1 ]
+  [ "${lines[0]}" == "${file}:1:@todo stuff" ]
+}
+
+@test "Scans a file whose name contains a newline when passed after --" {
+  file="$(printf '%s/bad\nname.txt' "$TEST_REPO")"
+  echo '@todo stuff' > "$file"
+  # Invoke directly: repo_run's unquoted expansion would split the newline.
+  cd $TEST_REPO
+  run git-secrets --scan -- "bad"$'\n'"name.txt"
+  [ $status -eq 1 ]
+  echo "$output" | grep -F -- 'name.txt:1:@todo stuff'
+}
+
+@test "Option-like file names are skipped when patterns are allowed" {
+  file="$TEST_REPO/--exclude=.*"
+  echo '@todo stuff' > "$file"
+  git config --add secrets.allowed '@todo'
+  repo_run git-secrets --scan -- "$file"
+  [ $status -eq 0 ]
+}
+
+@test "Recursive scan still descends into directories with option-like names" {
+  mkdir -p "$TEST_REPO/-edir"
+  echo '@todo stuff' > "$TEST_REPO/-edir/secret.txt"
+  repo_run git-secrets --scan -r -- "$TEST_REPO/-edir"
+  [ $status -eq 1 ]
+  echo "$output" | grep -F -- '-edir/secret.txt:1:@todo stuff'
+}
+
 @test "Only matches on word boundaries" {
   file="$TEST_REPO/test.txt"
   # Note that the following does not match as it is not a word.
